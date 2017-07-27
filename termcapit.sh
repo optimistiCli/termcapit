@@ -16,7 +16,7 @@ function add_to_cleanable {
 }
 
 function cleanup {
-	: # rm -rf $_CLEANABLE
+	rm -rf $_CLEANABLE
 }
 
 function brag_and_exit {
