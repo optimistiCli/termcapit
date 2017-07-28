@@ -46,6 +46,15 @@ function leave_with_dignity {
 	exit 0
 }
 
+function cook_temp_file {
+	local tempfile=
+	tempfile="$(mktemp /tmp/${0##*/}_${1-temp}.XXXXXXXXXX 2>/dev/null)" || brag_and_exit "Can not create temp file${1:+ for $1}"
+	add_to_cleanable "$tempfile"
+
+	LAST_COOCKED_TEMP_FILE="$tempfile"
+}
+
+
 read -r -d '' SED_JOIN << EOSJ
 : repeat
 /\\\\$/ {
@@ -86,17 +95,15 @@ UPDATE="${!OPTIND}"
 SOURCE="${SOURCE-/etc/termcap}"
 
 
-COMPILED_TMP="$(mktemp /tmp/${0##*/}_compiled.XXXXXXXXXX)" || brag_and_exit "Can not create temp file for compiling"
-add_to_cleanable "$COMPILED_TMP"
-COMPILED_IS_EMPTY=YES
+cook_temp_file compiling ; COMPILING_TMP="$LAST_COOCKED_TEMP_FILE"
+COMPILING_IS_EMPTY=YES
 
 if [ -f "$SOURCE" ] ; then
 	[ -w "$SOURCE" ] || brag_and_exit "Can not write to termcap file $SOURCE"
 
-	JOINED_TMP="$(mktemp /tmp/${0##*/}_joined.XXXXXXXXXX)" || brag_and_exit "Can not create temp file for joining"
-	add_to_cleanable "$JOINED_TMP"
+	cook_temp_file joining ; JOINING_TMP="$LAST_COOCKED_TEMP_FILE"
 
-	sed -E -e "$SED_JOIN" < "$SOURCE" >> "$JOINED_TMP"
+	sed -E -e "$SED_JOIN" < "$SOURCE" >> "$JOINING_TMP"
 
 	# Compose the list of entry names to be updated
 	while IFS='' read -r LINE ; do
@@ -107,13 +114,13 @@ if [ -f "$SOURCE" ] ; then
 		OVERLAP_NAMES="${OVERLAP_NAMES}$(printf '%s%q' "${OVERLAP_NAMES:+|}" "${LINE%|*}")" 
 	done < "$UPDATE"
 
-	if grep -Eq "^($OVERLAP_NAMES)[:|]" < "$JOINED_TMP" ; then
-		grep -vE "^($OVERLAP_NAMES)[:|]" < "$JOINED_TMP" | sed -e "$SED_SPLIT" >> "$COMPILED_TMP"
+	if grep -Eq "^($OVERLAP_NAMES)[:|]" < "$JOINING_TMP" ; then
+		grep -vE "^($OVERLAP_NAMES)[:|]" < "$JOINING_TMP" | sed -e "$SED_SPLIT" >> "$COMPILING_TMP"
 		BACKUP_NEEDED=YES
 	else
-		cat "$SOURCE" >> "$COMPILED_TMP"
+		cat "$SOURCE" >> "$COMPILING_TMP"
 	fi
-	COMPILED_IS_EMPTY=NO
+	COMPILING_IS_EMPTY=NO
 elif [ ! -e "$SOURCE" ] ; then
 	if [ "$INSTALL_UPDATE" == 'YES' ] ; then
 		touch "$SOURCE" 2>/dev/null || brag_and_exit "Can not create termcap file $SOURCE"
@@ -125,9 +132,9 @@ else
 fi
 
 if [ "$INSTALL_UPDATE" == 'YES' ] ; then
-	[ "$COMPILED_IS_EMPTY" != 'YES' ] && BACKUP_NEEDED=YES
-	cat "$UPDATE" >> "$COMPILED_TMP" 
-	COMPILED_IS_EMPTY=NO
+	[ "$COMPILING_IS_EMPTY" != 'YES' ] && BACKUP_NEEDED=YES
+	cat "$UPDATE" >> "$COMPILING_TMP" 
+	COMPILING_IS_EMPTY=NO
 fi
 
 if [ "$BACKUP_NEEDED" = 'YES' ] ; then 
@@ -135,9 +142,9 @@ if [ "$BACKUP_NEEDED" = 'YES' ] ; then
 	cp -a "$SOURCE" "$BACKUP" || brag_and_exit "Can not backup $SOURCE to $BACKUP"
 fi
 
-if [ "$COMPILED_IS_EMPTY" != 'YES' ] ; then
+if [ "$COMPILING_IS_EMPTY" != 'YES' ] ; then
 	(
-		cat "$COMPILED_TMP" > "$SOURCE" || brag_and_exit "Can not write updated termcap to $SOURCE"
+		cat "$COMPILING_TMP" > "$SOURCE" || brag_and_exit "Can not write updated termcap to $SOURCE"
 	) 2>/dev/null; 
 fi
 
